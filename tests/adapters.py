@@ -6,6 +6,7 @@ from typing import IO, BinaryIO, Iterable, Optional, Type
 
 import numpy.typing as npt
 import torch
+import regex as re
 
 
 def run_positionwise_feedforward(
