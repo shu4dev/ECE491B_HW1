@@ -542,31 +542,93 @@ def get_tokenizer(
 def run_train_bpe(
     input_path: str | os.PathLike,
     vocab_size: int,
-    special_tokens: list[str],
-    **kwargs,
+    special_tokens: List[str] = None
 ):
-    """Given the path to an input corpus, run train a BPE tokenizer and
-    output its vocabulary and merges.
+    if special_tokens is None:
+        special_tokens = []
 
-    Args:
-        input_path: str | os.PathLike
-            Path to BPE tokenizer training data.
-        vocab_size: int
-            Total number of items in the tokenizer's vocabulary (including special tokens).
-        special_tokens: list[str]
-            A list of string special tokens to be added to the tokenizer vocabulary.
-            These strings will never be split into multiple tokens, and will always be
-            kept as a single token. If these special tokens occur in the `input_path`,
-            they are treated as any other string.
+    def build_pair_stats(words_list: List[List[str]], freqs: List[int]):
+        pair2freq = {}
+        for w_id, word in enumerate(words_list):
+            frequency = freqs[w_id]
+            for i in range(len(word) - 1):
+                pair = (word[i], word[i+1])
+                if pair not in pair2freq:
+                    pair2freq[pair] = 0
+                pair2freq[pair] += frequency
+        return pair2freq
+    
+    word_freq = {}
+    words_list = [] 
+    freqs = []
 
-    Returns:
-        Tuple of (vocab, merges):
-            vocab: dict[int, bytes]
-                The trained tokenizer vocabulary, a mapping from int (token ID in the vocabulary)
-                to bytes (token bytes)
-            merges: list[tuple[bytes, bytes]]
-                BPE merges. Each list item is a tuple of bytes (<token1>, <token2>),
-                representing that <token1> was merged with <token2>.
-                Merges are ordered by order of creation.
-    """
-    raise NotImplementedError
+    PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+    with open(input_path, "r") as f:
+        for line in f:
+            tokens = re.findall(PAT, line)
+            for token in tokens:
+                word_freq[tuple(token)] = word_freq.get(tuple(token), 0) + 1
+        for (word, freq) in word_freq.items():
+            words_list.append(list(word))
+            freqs.append(freq)
+
+    current_vocab_size = 256 + len(special_tokens)
+    num_merges_to_do = max(0, vocab_size - current_vocab_size)
+    pair2freq = build_pair_stats(words_list, freqs)
+    merges_performed = []
+
+    for _ in range(num_merges_to_do):
+        if not pair2freq:
+            break
+        best_pair_count = 0
+        best_pair = None
+        for pair, counts in pair2freq.items():
+            if counts > best_pair_count:
+                best_pair = pair
+                best_pair_count = counts
+            if counts == best_pair_count:
+                best_pair = max(best_pair, pair)
+        if best_pair_count < 1:
+            break    
+        
+        merges_locations = []
+        for w_id, word in enumerate(words_list):
+            for idx in range(len(word) - 1):
+                if (word[idx], word[idx + 1]) == best_pair:
+                    merges_locations.append((w_id, idx))
+                    if idx >= 1:
+                        left_pair = (word[idx - 1], word[idx])
+                        pair2freq[left_pair] = pair2freq.get(left_pair, 0) - freqs[w_id]
+                    if idx + 2 < len(word):
+                        right_pair = (word[idx + 1], word[idx + 2])
+                        pair2freq[right_pair] = pair2freq.get(right_pair, 0) - freqs[w_id]
+
+        sorted_locations = sorted(merges_locations, key=lambda x: (x[0], x[1]), reverse=True)            
+
+        for w_id, idx in sorted_locations:
+            words_list[w_id][idx] = ''.join(best_pair)
+            del words_list[w_id][idx + 1]
+            new_word = words_list[w_id]
+            if idx >= 1:
+                new_left_pair = (new_word[idx - 1], new_word[idx])
+                pair2freq[new_left_pair] = pair2freq.get(new_left_pair, 0) + freqs[w_id]
+            if idx + 1 < len(new_word):
+                new_right_pair = (new_word[idx], new_word[idx + 1])
+                pair2freq[new_right_pair] = pair2freq.get(new_right_pair, 0) + freqs[w_id]
+                    
+        
+        pair2freq.pop(best_pair)
+        merges_performed.append((best_pair[0].encode("utf-8"), best_pair[1].encode("utf-8")))
+        current_vocab_size += 1
+        if current_vocab_size >= vocab_size:
+            break
+            
+    vocab = {}
+    for token in special_tokens:
+        vocab[len(vocab)] = token.encode("utf-8")
+    for i in range (256):
+        vocab[len(vocab)] = bytes([i])
+    for token in merges_performed:
+        vocab[len(vocab)] = b''.join(token)
+
+    return vocab, merges_performed
