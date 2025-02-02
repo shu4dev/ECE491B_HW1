@@ -519,25 +519,94 @@ def get_tokenizer(
     merges: list[tuple[bytes, bytes]],
     special_tokens: Optional[list[str]] = None,
 ):
-    """Given a vocabulary, a list of merges, and a list of special tokens,
-    return a BPE tokenizer that uses the provided vocab, merges, and special tokens.
+    return Tokenizer(vocab, merges, special_tokens)
 
-    Args:
-        vocab: dict[int, bytes]
-            The tokenizer vocabulary, a mapping from int (token ID in the vocabulary)
-            to bytes (token bytes)
-        merges: list[tuple[bytes, bytes]]
-            BPE merges. Each list item is a tuple of bytes (<token1>, <token2>),
-            representing that <token1> was merged with <token2>.
-            Merges are ordered by order of creation.
-        special_tokens: Optional[list[str]]
-            A list of string special tokens for the tokenizer. These strings will never
-            be split into multiple tokens, and will always be kept as a single token.
+class Tokenizer:
 
-    Returns:
-        A BPE tokenizer that uses the provided vocab, merges, and special tokens.
-    """
-    raise NotImplementedError
+    def __init__(
+        self,
+        vocab: Dict[int, bytes],
+        merges: List[Tuple[bytes, bytes]],
+        special_tokens: Optional[List[str]] = None
+    ):
+    
+        self.id_to_token = vocab
+        self.token_to_id = {v: k for k, v in vocab.items()}
+        self.merge = merges
+        self.special_tokens = special_tokens or []
+
+    @classmethod
+    def from_files(
+        cls,
+        vocab_filepath: str,
+        merges_filepath: str,
+        special_tokens: Optional[List[str]] = None
+    ):
+        vocab = {}
+        merges = []
+        with open(vocab_filepath, "r", encoding="utf-8") as f:
+            input = json.load(f)
+            vocab = {v:k.encode("utf-8") for k, v in input.items()}
+        
+        with open(merges_filepath, "r") as f:
+            for line in f:
+                line = line.rstrip().split(" ")
+                merges.append((line[0].encode("utf-8"), line[1].encode("utf-8")))
+        return cls(vocab, merges, special_tokens)
+
+    def encode(self, text: str) -> List[int]:
+        bytes_value = gpt2_bytes_to_unicode()
+        PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+        text = re.findall(PAT, text)    
+        tokens = []
+        ids = []
+        
+        
+        do_merge = True 
+        for token in text:
+            for b in token.encode("utf-8"):
+                tokens.append(bytes(bytes_value[b].encode("utf-8")))
+        
+        while do_merge:
+            best_idx = 0
+            best_score = len(self.merge)
+            for idx in range(len(tokens) - 1):
+                pair = (tokens[idx], tokens[idx + 1])
+                if pair in self.merge:
+                    score = self.merge.index(pair)
+                    if score < best_score:
+                        best_score = score
+                        best_idx = idx
+            if best_score == len(self.merge):
+                    for token in tokens:
+                        ids.append(self.token_to_id[token])
+                    do_merge = False
+            if do_merge:
+                tokens[best_idx] = tokens[best_idx] + tokens[best_idx + 1]
+                del tokens[best_idx + 1]
+        return ids  
+                    
+        
+                
+    def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
+        PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+        for line in iterable:
+            tokens = re.findall(PAT, line)
+            for token in tokens:
+                if token.startswith(' '):
+                    token = "Ġ" + token[1:]
+                ids = self.encode(token)
+                for id in ids:
+                    yield id
+
+
+    def decode(self, ids: List[int]) -> str:
+        tokens = [self.id_to_token[i] for i in ids]
+        decoded_string = "".join(token.decode("utf-8") for token in tokens)
+        bytes_value = gpt2_bytes_to_unicode()
+        unicode_to_byte = {v: k for k, v in bytes_value.items()}
+        byte_array = bytearray(unicode_to_byte[c] for c in decoded_string)
+        return byte_array.decode("utf-8", errors="replace")
 
 
 def run_train_bpe(
