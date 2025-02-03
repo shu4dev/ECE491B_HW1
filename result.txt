@@ -1,0 +1,98 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.10.16, pytest-8.3.4, pluggy-1.5.0
+rootdir: /Users/brianshu/workspace/ECE491B_HW1
+configfile: pytest.ini
+collected 23 items
+
+tests/test_tokenizer.py::test_roundtrip_empty PASSED                     [  4%]
+tests/test_tokenizer.py::test_empty_matches_tiktoken PASSED              [  8%]
+tests/test_tokenizer.py::test_roundtrip_single_character PASSED          [ 13%]
+tests/test_tokenizer.py::test_single_character_matches_tiktoken PASSED   [ 17%]
+tests/test_tokenizer.py::test_roundtrip_single_unicode_character PASSED  [ 21%]
+tests/test_tokenizer.py::test_single_unicode_character_matches_tiktoken PASSED [ 26%]
+tests/test_tokenizer.py::test_roundtrip_ascii_string PASSED              [ 30%]
+tests/test_tokenizer.py::test_ascii_string_matches_tiktoken PASSED       [ 34%]
+tests/test_tokenizer.py::test_roundtrip_unicode_string PASSED            [ 39%]
+tests/test_tokenizer.py::test_unicode_string_matches_tiktoken PASSED     [ 43%]
+tests/test_tokenizer.py::test_roundtrip_unicode_string_with_special_tokens PASSED [ 47%]
+tests/test_tokenizer.py::test_unicode_string_with_special_tokens_matches_tiktoken PASSED [ 52%]
+tests/test_tokenizer.py::test_overlapping_special_tokens PASSED          [ 56%]
+tests/test_tokenizer.py::test_address_roundtrip PASSED                   [ 60%]
+tests/test_tokenizer.py::test_address_matches_tiktoken PASSED            [ 65%]
+tests/test_tokenizer.py::test_german_roundtrip PASSED                    [ 69%]
+tests/test_tokenizer.py::test_german_matches_tiktoken PASSED             [ 73%]
+tests/test_tokenizer.py::test_tinystories_sample_roundtrip PASSED        [ 78%]
+tests/test_tokenizer.py::test_tinystories_matches_tiktoken FAILED        [ 82%]
+tests/test_tokenizer.py::test_encode_iterable_tinystories_sample_roundtrip PASSED [ 86%]
+tests/test_tokenizer.py::test_encode_iterable_tinystories_matches_tiktoken FAILED [ 91%]
+tests/test_tokenizer.py::test_encode_iterable_memory_usage SKIPPED (...) [ 95%]
+tests/test_tokenizer.py::test_encode_memory_usage SKIPPED (rlimit su...) [100%]
+
+=================================== FAILURES ===================================
+______________________ test_tinystories_matches_tiktoken _______________________
+
+    def test_tinystories_matches_tiktoken():
+        reference_tokenizer = tiktoken.get_encoding("gpt2")
+        tokenizer = get_tokenizer_from_vocab_merges_path(
+            vocab_path=VOCAB_PATH, merges_path=MERGES_PATH, special_tokens=["<|endoftext|>"]
+        )
+        corpus_path = FIXTURES_PATH / "tinystories_sample.txt"
+        with open(corpus_path) as f:
+            corpus_contents = f.read()
+        reference_ids = reference_tokenizer.encode(
+            corpus_contents, allowed_special={"<|endoftext|>"}
+        )
+        ids = tokenizer.encode(corpus_contents)
+>       assert ids == reference_ids
+E       AssertionError: assert [198, 7454, 2...640, 612, ...] == [198, 7454, 2...640, 612, ...]
+E         
+E         At index 71 diff: 220 != 564
+E         Left contains 17 more items, first extra item: 8856
+E         
+E         Full diff:
+E           [
+E               198,...
+E         
+E         ...Full output truncated (968 lines hidden), use '-vv' to show
+
+tests/test_tokenizer.py:354: AssertionError
+______________ test_encode_iterable_tinystories_matches_tiktoken _______________
+
+    def test_encode_iterable_tinystories_matches_tiktoken():
+        reference_tokenizer = tiktoken.get_encoding("gpt2")
+        tokenizer = get_tokenizer_from_vocab_merges_path(
+            vocab_path=VOCAB_PATH, merges_path=MERGES_PATH, special_tokens=["<|endoftext|>"]
+        )
+        corpus_path = FIXTURES_PATH / "tinystories_sample.txt"
+        with open(corpus_path) as f:
+            corpus_contents = f.read()
+        reference_ids = reference_tokenizer.encode(
+            corpus_contents, allowed_special={"<|endoftext|>"}
+        )
+        all_ids = []
+        with open(FIXTURES_PATH / "tinystories_sample.txt") as f:
+            for _id in tokenizer.encode_iterable(f):
+                all_ids.append(_id)
+>       assert all_ids == reference_ids
+E       AssertionError: assert [198, 7454, 2...640, 612, ...] == [198, 7454, 2...640, 612, ...]
+E         
+E         At index 71 diff: 220 != 564
+E         Left contains 18 more items, first extra item: 1854
+E         
+E         Full diff:
+E           [
+E               198,...
+E         
+E         ...Full output truncated (965 lines hidden), use '-vv' to show
+
+tests/test_tokenizer.py:389: AssertionError
+=============================== warnings summary ===============================
+../../../../opt/anaconda3/envs/ece496b_basics/lib/python3.10/site-packages/torch/nn/modules/transformer.py:20
+  /opt/anaconda3/envs/ece496b_basics/lib/python3.10/site-packages/torch/nn/modules/transformer.py:20: UserWarning: Failed to initialize NumPy: _ARRAY_API not found (Triggered internally at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/utils/tensor_numpy.cpp:84.)
+    device: torch.device = torch.device(torch._C._get_default_device()),  # torch.device('cpu'),
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_tokenizer.py::test_tinystories_matches_tiktoken - Assertion...
+FAILED tests/test_tokenizer.py::test_encode_iterable_tinystories_matches_tiktoken
+============== 2 failed, 19 passed, 2 skipped, 1 warning in 7.26s ==============
