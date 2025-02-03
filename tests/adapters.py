@@ -555,36 +555,46 @@ class Tokenizer:
         return cls(vocab, merges, special_tokens)
 
     def encode(self, text: str) -> List[int]:
-        bytes_value = gpt2_bytes_to_unicode()
-        PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-        text = re.findall(PAT, text)    
-        tokens = []
+        special_tokens = sorted(self.special_tokens, key=len, reverse=True)
+        PAT = r"'|(?:[sdmt]|ll|ve|re)|\s*\p{So}|\s*[\p{L}\p{N}]+|\s*[^\s\p{L}\p{N}\p{So}]+|\s+"
         ids = []
-        
-        
-        do_merge = True 
-        for token in text:
-            for b in token.encode("utf-8"):
-                tokens.append(bytes(bytes_value[b].encode("utf-8")))
-        
-        while do_merge:
-            best_idx = 0
-            best_score = len(self.merge)
-            for idx in range(len(tokens) - 1):
-                pair = (tokens[idx], tokens[idx + 1])
-                if pair in self.merge:
-                    score = self.merge.index(pair)
-                    if score < best_score:
-                        best_score = score
-                        best_idx = idx
-            if best_score == len(self.merge):
+         
+
+    def escape_token(token):
+        escaped = re.escape(token)
+        return f"(?:\\s*{escaped})"
+        special_tokens_pattern = "|".join(escape_token(token) for token in special_tokens)
+        final_pattern = f"(?:{special_tokens_pattern})|{PAT}"
+        tokens = re.findall(final_pattern, text)
+
+        for token in tokens:
+            if token in self.special_tokens:
+                ids.append(self.token_to_id[token])
+                continue
+
+            do_merge = True
+            while do_merge:
+                best_idx = 0
+                best_score = len(self.merge)
+                for idx in range(len(token) - 1):
+                    
+                    pair = (token[idx], token[idx + 1])
+                    print(pair)
+                    if pair in self.merge:
+                        score = self.merge.index(pair)
+                        if score < best_score:
+                            best_score = score
+                            best_idx = idx
+                if best_score == len(self.merge):
                     for token in tokens:
                         ids.append(self.token_to_id[token])
                     do_merge = False
-            if do_merge:
-                tokens[best_idx] = tokens[best_idx] + tokens[best_idx + 1]
-                del tokens[best_idx + 1]
-        return ids  
+                if do_merge:
+                    tokens[best_idx] = tokens[best_idx] + tokens[best_idx + 1]
+                    del tokens[best_idx + 1]
+
+        print(ids)
+        return ids 
                     
         
                 
