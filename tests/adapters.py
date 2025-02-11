@@ -590,20 +590,13 @@ class Tokenizer:
 
         special_tokens_pattern = "|".join(f"(?:{escape_token(token)})" for token in special_tokens)
 
-        base_pattern = (
-            r"\s*[\p{L}\p{N}]+|"      # Optional leading whitespace + words
-            r"\s*\p{So}|"             # Optional leading whitespace + emojis
-            r"\s*'(?:[sdmt]|ll|ve|re)|" # Optional leading whitespace + contractions
-            r"[^\s\p{L}\p{N}\p{So}]|" # Optional leading whitespace + other characters
-            r"\s+"                     # Any remaining whitespace
-        )
-        PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+  
+        PAT = r"""'(?:[sdmt]|ll|ve|re|)| ?\p{L}+| ?\p{N}+| ?\p{So}+| ?[^\s\p{L}\p{N}\p{S}]+|\s+(?!\S)|\s+"""
 
-        final_pattern = f"(?:{special_tokens_pattern})|{base_pattern}" if special_tokens else PAT
+        final_pattern = f"(?:{special_tokens_pattern})|{PAT}" if special_tokens else PAT
         tokens = re.findall(final_pattern, text)
         
         for token in tokens:
-            
             if token in self.special_tokens:
                 ids.append(self.token_to_id[token.encode("utf-8")])
                 continue

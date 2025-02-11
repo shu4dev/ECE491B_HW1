@@ -74,27 +74,20 @@ class Tokenizer:
     def encode(self, text: str) -> List[int]:
         special_tokens = sorted(self.special_tokens, key=len, reverse=True)
         ids = []
-        tokens = []
+        tokens = []            
 
         def escape_token(token):
             escaped = re.escape(token)
             return f"{escaped}"
-
+        
         special_tokens_pattern = "|".join(f"(?:{escape_token(token)})" for token in special_tokens)
-        PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|[^\S\n]+(?!\S)|[^\S\n]+"""
-        base_pattern = (
-            r"[^\S\n]*[\p{L}\p{N}]+|"      # Optional leading whitespace + words
-            r"\s*\p{So}|"             # Optional leading whitespace + emojis
-            r"\s*'(?:[sdmt]|ll|ve|re)|" # Optional leading whitespace + contractions
-            r"[^\s\p{L}\p{N}\p{So}]|" # Optional leading whitespace + other characters
-            r"\s+"                     # Any remaining whitespace
-        )
+        print(special_tokens_pattern)
+        PAT = r"""'(?:[sdmt]|ll|ve|re|)| ?\p{L}+| ?\p{N}+| ?\p{So}+| ?[^\s\p{L}\p{N}\p{S}]+|\s+(?!\S)|\s+"""
 
-        final_pattern = f"(?:{special_tokens_pattern})|{base_pattern}" if special_tokens else PAT
+        final_pattern = f"(?:{special_tokens_pattern})|{PAT}" if special_tokens else PAT
         tokens = re.findall(final_pattern, text)
         print(tokens)
         for token in tokens:
-            
             if token in self.special_tokens:
                 ids.append(self.token_to_id[token.encode("utf-8")])
                 continue
@@ -118,6 +111,8 @@ class Tokenizer:
                 if do_merge:
                     token[best_idx] = token[best_idx] + token[best_idx + 1]
                     del token[best_idx + 1]
+
+          
         return ids  
                     
           
@@ -134,21 +129,17 @@ class Tokenizer:
         return tokens.decode("utf-8", errors="replace")
 
 def test_roundtrip_unicode_string_with_special_tokens():
-    reference_tokenizer = tiktoken.get_encoding("gpt2")
     tokenizer = Tokenizer.from_files(
-        vocab_filepath=VOCAB_PATH, merges_filepath=MERGES_PATH, special_tokens=["<|endoftext|>"]
+        vocab_filepath=VOCAB_PATH, merges_filepath=MERGES_PATH, special_tokens=["<|endoftext|>", "<|endoftext|><|endoftext|>"],
     )
-    corpus_path = FIXTURES_PATH / "tinystories_sample.txt"
-    with open(corpus_path) as f:
-        corpus_contents = f.read()
-    reference_ids = reference_tokenizer.encode(
-        corpus_contents, allowed_special={"<|endoftext|>"}
-    )
-    ids = tokenizer.encode(corpus_contents)
-    assert ids == reference_ids
-    print(reference_ids)
-    print(ids)
-    assert tokenizer.decode(ids) == corpus_contents
-    assert reference_tokenizer.decode(reference_ids) == corpus_contents
+    test_string = "Hello, how <|endoftext|><|endoftext|> are you?<|endoftext|>"
+
+    ids = tokenizer.encode(test_string)
+    tokenized_string = [tokenizer.decode([x]) for x in ids]
+    # Ensure the double <|endoftext|><|endoftext|> is preserved as a single token
+    assert tokenized_string.count("<|endoftext|>") == 1
+    assert tokenized_string.count("<|endoftext|><|endoftext|>") == 1
+    # Test roundtrip
+    assert tokenizer.decode(ids) == test_string
 
 test_roundtrip_unicode_string_with_special_tokens()
