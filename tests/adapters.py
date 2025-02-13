@@ -7,9 +7,11 @@ from typing import IO, BinaryIO, Iterable, Optional, Type, Dict, List, Tuple, It
 import numpy.typing as npt
 import torch
 import regex as re
-
+import numpy
 import json
 from .common import gpt2_bytes_to_unicode
+import math
+import torch.nn.functional as F
 
 
 def run_positionwise_feedforward(
@@ -47,8 +49,8 @@ def run_positionwise_feedforward(
     # You can also manually assign the weights
     # my_ffn.w1.weight.data = weights["w1.weight"]
     # my_ffn.w2.weight.data = weights["w2.weight"]
-    raise NotImplementedError
-
+    l0 = run_gelu(torch.matmul(in_features, weights["w1.weight"].T))
+    return torch.matmul(l0, weights["w2.weight"].T)
 
 def run_scaled_dot_product_attention(
     K: torch.FloatTensor,
@@ -89,57 +91,113 @@ def run_scaled_dot_product_attention(
         with the output of running your scaled dot product attention
         implementation with the provided key, query, and value tensors.
     """
-    raise NotImplementedError
+    d_k = K.shape[-1]
+    attn_scores = torch.matmul(Q, K.transpose(-1, -2)) / math.sqrt(d_k)
+    if mask is not None:
+        attn_scores = attn_scores.masked_fill(mask, float('-inf'))
+    attn_weights = torch.softmax(attn_scores, dim=-1)
+    if pdrop is not None and pdrop > 0.0:
+        attn_weights = F.dropout(attn_weights, p=pdrop, training=True)
+    output = torch.matmul(attn_weights, V)
+
+    return output
 
 
 def run_multihead_self_attention(
     d_model: int,
     num_heads: int,
     attn_pdrop: float,
-    weights: dict[str, torch.FloatTensor],
+    weights: Dict[str, torch.FloatTensor],
     in_features: torch.FloatTensor,
 ) -> torch.FloatTensor:
-    """Given the key, query, and value projection weights of a naive unbatched
-    implementation of multi-head attention, return the output of an optimized batched
-    implementation. This implementation should handle the key, query, and value projections
-    for all heads in a single matrix multiply.
-    See section 3.2.2 of Vaswani et al., 2017.
+    """
+    Given the key, query, and value projection weights of a naive unbatched
+    implementation of multi-head attention, return the output of an optimized
+    batched implementation.
+
+    This implementation:
+      1) Gathers all heads' Q, K, V weights into big matrices
+      2) Computes Q, K, V for all heads in one matmul each
+      3) Does multi-head scaled dot-product attention
+      4) Combines heads and projects back to d_model
 
     Args:
-        d_model: int
-            Dimensionality of the feedforward input and output.
-        num_heads: int
-            Number of heads to use in multi-headed attention.
-        attn_pdrop: float
-            Drop-out the attention probabilities (the softmax-normalized
-            attention scores) with this rate.
-        weights: dict[str, torch.FloatTensor]
-            State dict of our reference implementation.
-            The keys of this dictionary are:
-            - `q_heads.{N}.weight`, `q_heads.{N}.weight`:
-                Weights for the query projection heads.
-                N is an integer from 0 to `num_heads - 1`.
-                Shape of each tensor is (d_key, d_model).
-            - `k_heads.{N}.weight`, `k_heads.{N}.weight`:
-                Weights for the key projection heads.
-                N is an integer from 0 to `num_heads - 1`.
-                Shape of each tensor is (d_key, d_model).
-            - `v_heads.{N}.weight`, `v_heads.{N}.weight`:
-                Weights for the value projection heads.
-                N is an integer from 0 to `num_heads - 1`.
-                Shape of each tensor is (d_value, d_model).
-            - `output_proj.weight`:
-                Weight of the output projection
-                (W^{O} in the original Transformer paper)
-                Shape of (d_model, d_value * num_heads).
-        in_features: torch.FloatTensor
-            Tensor to run your implementation on.
+        d_model (int):
+            Dimensionality of the input and output embeddings.
+        num_heads (int):
+            Number of attention heads.
+        attn_pdrop (float):
+            Dropout probability to apply on the attention weights.
+        weights (dict[str, torch.FloatTensor]):
+            State dict holding the naive multi-head Q/K/V weights + output proj.
+            e.g.:
+                {
+                    "q_heads.0.weight": (d_key, d_model),
+                    "k_heads.0.weight": (d_key, d_model),
+                    "v_heads.0.weight": (d_value, d_model),
+                    "q_heads.1.weight": ...,
+                    ...
+                    "output_proj.weight": (d_model, d_value * num_heads)
+                }
+        in_features (torch.FloatTensor):
+            Input features, shape (seq_len, d_model) for an unbatched example.
 
     Returns:
-        torch.FloatTensor with the output of running your optimized, batched multi-headed attention
-        implementation with the given QKV projection weights and input features.
+        torch.FloatTensor of shape (seq_len, d_model)
+        The result of applying multi-head self-attention to `in_features`.
     """
-    raise NotImplementedError
+    seq_len = in_features.shape[0]
+    d_head = d_model // num_heads  # Assuming d_model is divisible by num_heads
+    
+    # 1. Gather Q/K/V weights for all heads into consolidated matrices
+    q_weights = torch.stack([weights[f"q_heads.{i}.weight"] for i in range(num_heads)])  # (num_heads, d_head, d_model)
+    k_weights = torch.stack([weights[f"k_heads.{i}.weight"] for i in range(num_heads)])  # (num_heads, d_head, d_model)
+    v_weights = torch.stack([weights[f"v_heads.{i}.weight"] for i in range(num_heads)])  # (num_heads, d_head, d_model)
+    
+    # 2. Compute Q, K, V for all heads in parallel
+    # Reshape for batch matrix multiplication
+    q_weights = q_weights.view(num_heads * d_head, d_model)  # (num_heads * d_head, d_model)
+    k_weights = k_weights.view(num_heads * d_head, d_model)  # (num_heads * d_head, d_model)
+    v_weights = v_weights.view(num_heads * d_head, d_model)  # (num_heads * d_head, d_model)
+    
+    # Compute Q, K, V projections
+    Q = torch.matmul(in_features, q_weights.t())  # (seq_len, num_heads * d_head)
+    K = torch.matmul(in_features, k_weights.t())  # (seq_len, num_heads * d_head)
+    V = torch.matmul(in_features, v_weights.t())  # (seq_len, num_heads * d_head)
+    
+    # Reshape Q, K, V to separate the heads dimension
+    Q = Q.view(seq_len, num_heads, d_head)  # (seq_len, num_heads, d_head)
+    K = K.view(seq_len, num_heads, d_head)  # (seq_len, num_heads, d_head)
+    V = V.view(seq_len, num_heads, d_head)  # (seq_len, num_heads, d_head)
+    
+    # 3. Compute scaled dot-product attention for all heads
+    # Transpose Q, K, V for batch matrix multiplication
+    Q = Q.transpose(0, 1)  # (num_heads, seq_len, d_head)
+    K = K.transpose(0, 1)  # (num_heads, seq_len, d_head)
+    V = V.transpose(0, 1)  # (num_heads, seq_len, d_head)
+    
+    # Compute attention scores
+    scores = torch.matmul(Q, K.transpose(-2, -1))  # (num_heads, seq_len, seq_len)
+    scores = scores / torch.sqrt(torch.tensor(d_head, dtype=scores.dtype))
+    
+    # Apply attention dropout
+    if attn_pdrop > 0:
+        attn_weights = F.dropout(F.softmax(scores, dim=-1), p=attn_pdrop)
+    else:
+        attn_weights = F.softmax(scores, dim=-1)
+    
+    # Apply attention to values
+    head_outputs = torch.matmul(attn_weights, V)  # (num_heads, seq_len, d_head)
+    
+    # 4. Combine heads and project back to d_model
+    # Transpose and reshape head outputs
+    head_outputs = head_outputs.transpose(0, 1)  # (seq_len, num_heads, d_head)
+    combined_heads = head_outputs.reshape(seq_len, num_heads * d_head)  # (seq_len, num_heads * d_head)
+    
+    # Final output projection
+    output = torch.matmul(combined_heads, weights["output_proj.weight"].t())  # (seq_len, d_model)
+    
+    return output
 
 
 def run_transformer_block(
@@ -335,7 +393,12 @@ def run_rmsnorm(
         FloatTensor of with the same shape as `in_features` with the output of running
         RMSNorm of the `in_features`.
     """
-    raise NotImplementedError
+
+    rms = torch.sqrt(torch.mean(in_features ** 2, dim=-1, keepdim=True) + eps)
+    normed_features = in_features / rms
+    output = normed_features * weights["weight"]
+
+    return output
 
 
 def run_gelu(in_features: torch.FloatTensor) -> torch.FloatTensor:
@@ -350,7 +413,7 @@ def run_gelu(in_features: torch.FloatTensor) -> torch.FloatTensor:
         FloatTensor of with the same shape as `in_features` with the output of applying
         GELU to each element.
     """
-    raise NotImplementedError
+    return in_features * 0.5 * (1.0 + torch.erf(in_features / numpy.sqrt(2.0)))
 
 
 def run_get_batch(
@@ -394,7 +457,10 @@ def run_softmax(in_features: torch.FloatTensor, dim: int) -> torch.FloatTensor:
         FloatTensor of with the same shape as `in_features` with the output of
         softmax normalizing the specified `dim`.
     """
-    raise NotImplementedError
+    shifted_inputs = in_features - in_features.max(dim=dim, keepdim=True)[0]
+    exp_values = torch.exp(shifted_inputs)
+    sum_exp = exp_values.sum(dim=dim, keepdim=True)    
+    return exp_values / sum_exp
 
 
 def run_cross_entropy(inputs: torch.FloatTensor, targets: torch.LongTensor):
