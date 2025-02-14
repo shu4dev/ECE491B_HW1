@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-
+from ece496b_basics import model
 import os
 from typing import IO, BinaryIO, Iterable, Optional, Type, Dict, List, Tuple, Iterator
 
 import numpy.typing as npt
 import torch
 import regex as re
-import numpy
+import numpy as np
 import json
 from .common import gpt2_bytes_to_unicode
 import math
@@ -49,8 +49,9 @@ def run_positionwise_feedforward(
     # You can also manually assign the weights
     # my_ffn.w1.weight.data = weights["w1.weight"]
     # my_ffn.w2.weight.data = weights["w2.weight"]
-    l0 = run_gelu(torch.matmul(in_features, weights["w1.weight"].T))
-    return torch.matmul(l0, weights["w2.weight"].T)
+    ffn = model.positionwise_feedforward(d_model, d_ff)
+    ffn.load_state_dict(weights)
+    return ffn(in_features)
 
 def run_scaled_dot_product_attention(
     K: torch.FloatTensor,
@@ -245,14 +246,9 @@ def run_transformer_block(
         running the Transformer block on the input features.
     """
 
-    x = run_rmsnorm(d_model)
-    x = run_multihead_self_attention(d_model, num_heads, attn_pdrop, x)
-    x = F.dropout(x, p=residual_pdrop)
-
-    x = run_rmsnorm(d_model, 1e-5, x)
-    x = run_positionwise_feedforward(d_model, d_ff, x)
-    x = F.dropout(x, p=residual_pdrop)
-    raise x
+    transformer_block = model.transformer_block(d_model, num_heads, d_ff, attn_pdrop, residual_pdrop)
+    transformer_block.load_state_dict(weights)
+    return transformer_block(in_features)
 
 
 def run_transformer_lm(
@@ -345,7 +341,9 @@ def run_transformer_lm(
         FloatTensor of shape (batch size, sequence_length, vocab_size) with the predicted unnormalized
         next-word distribution for each token.
     """
-    raise NotImplementedError
+    transformer_lm = model.transformer_lm(vocab_size, context_length, d_model, num_layers, num_heads, d_ff, attn_pdrop, residual_pdrop)
+    transformer_lm.load_state_dict(weights)
+    return transformer_lm(in_indices)
 
 
 def run_rmsnorm(
@@ -376,12 +374,9 @@ def run_rmsnorm(
         FloatTensor of with the same shape as `in_features` with the output of running
         RMSNorm of the `in_features`.
     """
-
-    rms = torch.sqrt(torch.mean(in_features ** 2, dim=-1, keepdim=True) + eps)
-    normed_features = in_features / rms
-    output = normed_features * weights["weight"]
-
-    return output
+    rms = model.RMSnorm(d_model, eps)
+    rms.load_state_dict(weights)
+    return rms(in_features)
 
 
 def run_gelu(in_features: torch.FloatTensor) -> torch.FloatTensor:
@@ -396,7 +391,8 @@ def run_gelu(in_features: torch.FloatTensor) -> torch.FloatTensor:
         FloatTensor of with the same shape as `in_features` with the output of applying
         GELU to each element.
     """
-    return in_features * 0.5 * (1.0 + torch.erf(in_features / numpy.sqrt(2.0)))
+    gelu = model.GELU()
+    return gelu(in_features)
 
 
 def run_get_batch(
@@ -423,7 +419,10 @@ def run_get_batch(
         is the sampled input sequences, and the second tuple item is the corresponding
         language modeling labels.
     """
-    raise NotImplementedError
+    starting_indices = torch.randint(0, len(dataset) - context_length, (batch_size,))
+    x = torch.stack([torch.from_numpy(dataset[start_idx:start_idx + context_length]) for start_idx in starting_indices])
+    y = torch.stack([torch.from_numpy(dataset[start_idx + 1:start_idx + context_length + 1]) for start_idx in starting_indices])
+    return x.to(device), y.to(device)
 
 
 def run_softmax(in_features: torch.FloatTensor, dim: int) -> torch.FloatTensor:
@@ -441,10 +440,8 @@ def run_softmax(in_features: torch.FloatTensor, dim: int) -> torch.FloatTensor:
         softmax normalizing the specified `dim`.
     """
 
-    shifted_inputs = in_features - in_features.max(dim=dim, keepdim=True)[0]
-    exp_values = torch.exp(shifted_inputs)
-    sum_exp = exp_values.sum(dim=dim, keepdim=True)    
-    return exp_values / sum_exp
+    softmax = model.softmax(dim)
+    return softmax(in_features)
 
 
 def run_cross_entropy(inputs: torch.FloatTensor, targets: torch.LongTensor):
@@ -462,7 +459,8 @@ def run_cross_entropy(inputs: torch.FloatTensor, targets: torch.LongTensor):
     Returns:
         Tensor of shape () with the average cross-entropy loss across examples.
     """
-    raise NotImplementedError
+    cross_entropy = model.cross_entropy_loss()
+    return cross_entropy(inputs, targets)
 
 
 def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: float):
@@ -477,14 +475,14 @@ def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm:
     Returns:
         None
     """
-    raise NotImplementedError
+    return model.gradient_clipping(parameters, max_l2_norm)
 
 
 def get_adamw_cls() -> Type[torch.optim.Optimizer]:
     """
     Returns a torch.optim.Optimizer that implements AdamW.
     """
-    raise NotImplementedError
+    return model.AdamW
 
 
 def run_get_lr_cosine_schedule(
@@ -517,7 +515,13 @@ def run_get_lr_cosine_schedule(
     Returns:
         Learning rate at the given iteration under the specified schedule.
     """
-    raise NotImplementedError
+    if it < warmup_iters:
+        return max_learning_rate * it / warmup_iters
+    elif it < cosine_cycle_iters:
+        return min_learning_rate + 0.5 * (max_learning_rate - min_learning_rate) * (1 + np.cos((it - warmup_iters) / (cosine_cycle_iters - warmup_iters) * 3.141592653589793))
+    else:
+        return min_learning_rate
+
 
 
 def run_save_checkpoint(
@@ -540,7 +544,11 @@ def run_save_checkpoint(
         out: str | os.PathLike | BinaryIO | IO[bytes]
             Path or file-like object to serialize the model, optimizer, and iteration to.
     """
-    raise NotImplementedError
+    torch.save({
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'iteration': iteration,
+    }, out)
 
 
 def run_load_checkpoint(
@@ -564,7 +572,11 @@ def run_load_checkpoint(
     Returns:
         int, the previously-serialized number of iterations.
     """
-    raise NotImplementedError
+    checkpoint = torch.load(src)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    iteration = checkpoint['iteration']
+    return iteration
 
 
 def get_tokenizer(
