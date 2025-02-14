@@ -336,6 +336,8 @@ def test_tinystories_sample_roundtrip():
         corpus_contents = f.read()
 
     ids = tokenizer.encode(corpus_contents)
+    print(tokenizer.decode(ids))
+    print(corpus_contents)
     assert tokenizer.decode(ids) == corpus_contents
 
 
@@ -350,9 +352,10 @@ def test_tinystories_matches_tiktoken():
     reference_ids = reference_tokenizer.encode(
         corpus_contents, allowed_special={"<|endoftext|>"}
     )
+
     ids = tokenizer.encode(corpus_contents)
     assert ids == reference_ids
-
+    
     assert tokenizer.decode(ids) == corpus_contents
     assert reference_tokenizer.decode(reference_ids) == corpus_contents
 
