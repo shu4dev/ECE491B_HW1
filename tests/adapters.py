@@ -92,15 +92,13 @@ def run_scaled_dot_product_attention(
         implementation with the provided key, query, and value tensors.
     """
     d_k = K.shape[-1]
-    attn_scores = torch.matmul(Q, K.transpose(-1, -2)) / math.sqrt(d_k)
+    attn_scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(d_k)
     if mask is not None:
         attn_scores = attn_scores.masked_fill(mask, float('-inf'))
-    attn_weights = torch.softmax(attn_scores, dim=-1)
-    if pdrop is not None and pdrop > 0.0:
-        attn_weights = F.dropout(attn_weights, p=pdrop, training=True)
-    output = torch.matmul(attn_weights, V)
+    attn_weights = run_softmax(attn_scores, dim=-1)
+    attn_weights = F.dropout(attn_weights, p=pdrop)
 
-    return output
+    return torch.matmul(attn_weights, V)
 
 
 def run_multihead_self_attention(
@@ -143,61 +141,38 @@ def run_multihead_self_attention(
             Input features, shape (seq_len, d_model) for an unbatched example.
 
     Returns:
-        torch.FloatTensor of shape (seq_len, d_model)
+        torch.FloatTensor of shape (batch_size, seq_len, d_model)
         The result of applying multi-head self-attention to `in_features`.
     """
-    seq_len = in_features.shape[0]
-    d_head = d_model // num_heads  # Assuming d_model is divisible by num_heads
+    # Shape of in_features is (batch_size, seq_len, d_model)
+    batch_size, seq_len, _ = in_features.shape
+    d_k = d_model // num_heads
+    d_v = d_k
+
+    # Step 1
+    # Shape of q_weight, k_weight, v_weight is (num_heads * d_k, d_model)
+    q_weight = torch.cat([weights[f"q_heads.{i}.weight"] for i in range(num_heads)])
+    k_weight = torch.cat([weights[f"k_heads.{i}.weight"] for i in range(num_heads)])
+    v_weight = torch.cat([weights[f"v_heads.{i}.weight"] for i in range(num_heads)])
+
+    # Step 2
+    #Shape of Q, K, V is (batch_size, seq_len, num_heads, d_k)
+    Q = torch.matmul(in_features, q_weight.T)
+    K = torch.matmul(in_features, k_weight.T)
+    V = torch.matmul(in_features, v_weight.T)
+
+    Q = Q.view(batch_size, seq_len, num_heads, d_k).transpose(1, 2)
+    K = K.view(batch_size, seq_len, num_heads, d_k).transpose(1, 2)
+    V = V.view(batch_size, seq_len, num_heads, d_v).transpose(1, 2)
     
-    # 1. Gather Q/K/V weights for all heads into consolidated matrices
-    q_weights = torch.stack([weights[f"q_heads.{i}.weight"] for i in range(num_heads)])  # (num_heads, d_head, d_model)
-    k_weights = torch.stack([weights[f"k_heads.{i}.weight"] for i in range(num_heads)])  # (num_heads, d_head, d_model)
-    v_weights = torch.stack([weights[f"v_heads.{i}.weight"] for i in range(num_heads)])  # (num_heads, d_head, d_model)
+    # step 3
+    mask = torch.triu(torch.ones(seq_len, seq_len), diagonal=1).bool().to(in_features.device)
+    context = run_scaled_dot_product_attention(K, Q, V, mask=mask, pdrop=attn_pdrop)
     
-    # 2. Compute Q, K, V for all heads in parallel
-    # Reshape for batch matrix multiplication
-    q_weights = q_weights.view(num_heads * d_head, d_model)  # (num_heads * d_head, d_model)
-    k_weights = k_weights.view(num_heads * d_head, d_model)  # (num_heads * d_head, d_model)
-    v_weights = v_weights.view(num_heads * d_head, d_model)  # (num_heads * d_head, d_model)
+    # step 4
+    context = context.transpose(1, 2).contiguous().view(batch_size, seq_len, d_model)
     
-    # Compute Q, K, V projections
-    Q = torch.matmul(in_features, q_weights.t())  # (seq_len, num_heads * d_head)
-    K = torch.matmul(in_features, k_weights.t())  # (seq_len, num_heads * d_head)
-    V = torch.matmul(in_features, v_weights.t())  # (seq_len, num_heads * d_head)
-    
-    # Reshape Q, K, V to separate the heads dimension
-    Q = Q.view(seq_len, num_heads, d_head)  # (seq_len, num_heads, d_head)
-    K = K.view(seq_len, num_heads, d_head)  # (seq_len, num_heads, d_head)
-    V = V.view(seq_len, num_heads, d_head)  # (seq_len, num_heads, d_head)
-    
-    # 3. Compute scaled dot-product attention for all heads
-    # Transpose Q, K, V for batch matrix multiplication
-    Q = Q.transpose(0, 1)  # (num_heads, seq_len, d_head)
-    K = K.transpose(0, 1)  # (num_heads, seq_len, d_head)
-    V = V.transpose(0, 1)  # (num_heads, seq_len, d_head)
-    
-    # Compute attention scores
-    scores = torch.matmul(Q, K.transpose(-2, -1))  # (num_heads, seq_len, seq_len)
-    scores = scores / torch.sqrt(torch.tensor(d_head, dtype=scores.dtype))
-    
-    # Apply attention dropout
-    if attn_pdrop > 0:
-        attn_weights = F.dropout(F.softmax(scores, dim=-1), p=attn_pdrop)
-    else:
-        attn_weights = F.softmax(scores, dim=-1)
-    
-    # Apply attention to values
-    head_outputs = torch.matmul(attn_weights, V)  # (num_heads, seq_len, d_head)
-    
-    # 4. Combine heads and project back to d_model
-    # Transpose and reshape head outputs
-    head_outputs = head_outputs.transpose(0, 1)  # (seq_len, num_heads, d_head)
-    combined_heads = head_outputs.reshape(seq_len, num_heads * d_head)  # (seq_len, num_heads * d_head)
-    
-    # Final output projection
-    output = torch.matmul(combined_heads, weights["output_proj.weight"].t())  # (seq_len, d_model)
-    
-    return output
+    return torch.matmul(context, weights["output_proj.weight"].T)
 
 
 def run_transformer_block(
@@ -269,7 +244,15 @@ def run_transformer_block(
         FloatTensor of shape (batch_size, sequence_length, d_model) with the output of
         running the Transformer block on the input features.
     """
-    raise NotImplementedError
+
+    x = run_rmsnorm(d_model)
+    x = run_multihead_self_attention(d_model, num_heads, attn_pdrop, x)
+    x = F.dropout(x, p=residual_pdrop)
+
+    x = run_rmsnorm(d_model, 1e-5, x)
+    x = run_positionwise_feedforward(d_model, d_ff, x)
+    x = F.dropout(x, p=residual_pdrop)
+    raise x
 
 
 def run_transformer_lm(
@@ -457,6 +440,7 @@ def run_softmax(in_features: torch.FloatTensor, dim: int) -> torch.FloatTensor:
         FloatTensor of with the same shape as `in_features` with the output of
         softmax normalizing the specified `dim`.
     """
+
     shifted_inputs = in_features - in_features.max(dim=dim, keepdim=True)[0]
     exp_values = torch.exp(shifted_inputs)
     sum_exp = exp_values.sum(dim=dim, keepdim=True)    
