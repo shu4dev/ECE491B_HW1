@@ -1,0 +1,89 @@
+{
+  "os":  "Linux-5.14.0-503.22.1.el9_5.x86_64-x86_64-with-glibc2.34",
+  "python":  "CPython 3.10.16",
+  "startedAt":  "2025-02-17T12:45:14.243380Z",
+  "args":  [
+    "@/home/shu4/ECE491B_HW1/ece496b_basics/args.txt"
+  ],
+  "program":  "/home/shu4/ECE491B_HW1/ece496b_basics/train.py",
+  "codePath":  "ece496b_basics/train.py",
+  "git":  {
+    "remote":  "https://github.com/shu4dev/ECE491B_HW1.git",
+    "commit":  "65339fae26a3d873a1faf8cdeda24dc44c112458"
+  },
+  "email":  "shu4@hawaii.edu",
+  "root":  "/home/shu4/ECE491B_HW1",
+  "host":  "gn-16-30-00",
+  "executable":  "/home/shu4/.conda/envs/ece496b_basics/bin/python",
+  "codePathLocal":  "ece496b_basics/train.py",
+  "cpu_count":  48,
+  "cpu_count_logical":  48,
+  "gpu":  "Quadro RTX 5000",
+  "gpu_count":  1,
+  "disk":  {
+    "/":  {
+      "total":  "100669108224",
+      "used":  "7881908224"
+    }
+  },
+  "memory":  {
+    "total":  "201338216448"
+  },
+  "cpu":  {
+    "count":  48,
+    "countLogical":  48
+  },
+  "gpu_nvidia":  [
+    {
+      "name":  "Quadro RTX 5000",
+      "memoryTotal":  "17179869184",
+      "cudaCores":  3072,
+      "architecture":  "Turing"
+    }
+  ],
+  "slurm":  {
+    "cluster_name":  "mana",
+    "conf":  "/etc/slurm/slurm.conf",
+    "cpus_on_node":  "10",
+    "cpus_per_task":  "10",
+    "export_env":  "NONE",
+    "get_user_env":  "1",
+    "gpus_on_node":  "1",
+    "gtids":  "0",
+    "immediate":  "120",
+    "job_account":  "ece491b",
+    "job_cpus_per_node":  "10",
+    "job_end_time":  "1739796497",
+    "job_gid":  "7271",
+    "job_gpus":  "1",
+    "job_id":  "5169326",
+    "job_name":  "sys/dashboard/sys/jupyter_lab",
+    "job_nodelist":  "gn-16-30-00",
+    "job_num_nodes":  "1",
+    "job_partition":  "ece491b",
+    "job_qos":  "normal",
+    "job_start_time":  "1739710097",
+    "job_uid":  "7271",
+    "job_user":  "shu4",
+    "jobid":  "5169326",
+    "localid":  "0",
+    "mem_per_node":  "102400",
+    "nnodes":  "1",
+    "nodeid":  "0",
+    "nodelist":  "gn-16-30-00",
+    "nprocs":  "1",
+    "ntasks":  "1",
+    "ntasks_per_node":  "1",
+    "oom_kill_step":  "0",
+    "prio_process":  "0",
+    "procid":  "0",
+    "submit_dir":  "/var/www/ood/apps/sys/dashboard",
+    "submit_host":  "ood-0051",
+    "task_pid":  "679745",
+    "tasks_per_node":  "1",
+    "topology_addr":  "gn-16-30-00",
+    "topology_addr_pattern":  "node",
+    "tres_per_task":  "cpu=10"
+  },
+  "cudaVersion":  "12.5"
+}

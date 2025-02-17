@@ -1,82 +1,110 @@
 import torch
 import torch.nn.functional as F
-from model import transformer_lm
+from model import transformer_lm, AdamW, load_checkpoint
+import tiktoken
 
-def decode(
-    model,
-    prompt,             # list or tensor of token ids; shape: (1, t)
-    max_new_tokens=100, # maximum number of tokens to generate
-    temperature=1.0,    # softmax temperature for sampling
-    top_p=0.9,          # nucleus sampling threshold
-    end_token_id=None,  # token id for <|endoftext|>; stop when generated
-    device="cpu"
-):
-    checkpoint = torch.load("/home/shu4/ECE491B_HW1/data/Experiment_output/checkpoints/checkpoint_6000.pt", map_location="cpu")
-    model.load_state_dict(checkpoint["model_state_dict"])
-    model.eval()
-    # Ensure prompt is a tensor on the right device.
-    if not torch.is_tensor(prompt):
-        prompt = torch.tensor(prompt, dtype=torch.long, device=device).unsqueeze(0)
-    else:
-        prompt = prompt.to(device)
-        if prompt.dim() == 1:
-            prompt = prompt.unsqueeze(0)
 
-    generated = prompt
-
+def decode(model, prompt, max_tokens=100, temperature=1.0, top_p=1.0, end_token_id=None):
+    """
+    Generate a sequence of token ids from the language model given an initial prompt.
+    """
+    if isinstance(prompt, torch.Tensor):
+        prompt = prompt.tolist()
+    generated = prompt.copy()
+    
+    # Ensure input tensors are on the same device as the model.
+    device = next(model.parameters()).device
+    
+    # Generate tokens without tracking gradients.
     with torch.no_grad():
-        for _ in range(max_new_tokens):
-            # Run the model to get logits for each token in the sequence.
-            logits = model(generated)  # shape: (1, seq_len, vocab_size)
-            # Only consider logits for the last token.
-            logits = logits[:, -1, :]  # shape: (1, vocab_size)
-
-            # Apply temperature scaling.
-            scaled_logits = logits / temperature
-            # Compute probabilities.
+        for _ in range(max_tokens):
+            input_tensor = torch.tensor([generated], device=device)
+            logits = model(input_tensor)             # [1, seq_len, vocab_size]
+            next_logits = logits[0, -1, :]             # [vocab_size]
+            scaled_logits = next_logits / temperature
             probs = F.softmax(scaled_logits, dim=-1)
 
-            # Top-p (nucleus) sampling:
-            sorted_probs, sorted_indices = torch.sort(probs, descending=True, dim=-1)
-            cumulative_probs = sorted_probs.cumsum(dim=-1)
+            # Apply nucleus (top-p) sampling if requested.
+            if top_p < 1.0:
+                sorted_probs, sorted_indices = torch.sort(probs, descending=True)
+                cumulative_probs = torch.cumsum(sorted_probs, dim=0)
+                sorted_mask = cumulative_probs > top_p
+                # Shift the mask right to always include at least one token.
+                sorted_mask[1:] = sorted_mask[:-1].clone()
+                sorted_mask[0] = 0
+                sorted_probs[sorted_mask] = 0.0
+                probs = torch.zeros_like(probs)
+                probs[sorted_indices] = sorted_probs
+                probs = probs / probs.sum()
 
-            # Create a mask for tokens to remove.
-            sorted_indices_to_remove = cumulative_probs > top_p
-            # Shift the mask one token to the right to always keep at least one token.
-            sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
-            sorted_indices_to_remove[..., 0] = 0
+            next_token = torch.multinomial(probs, num_samples=1).item()
+            generated.append(next_token)
 
-            # Set probabilities of filtered-out tokens to 0.
-            filtered_probs = probs.clone()
-            filtered_probs[0, sorted_indices[0][sorted_indices_to_remove[0]]] = 0.0
-            # Renormalize the probabilities.
-            filtered_probs = filtered_probs / filtered_probs.sum(dim=-1, keepdim=True)
-
-            # Sample the next token.
-            next_token = torch.multinomial(filtered_probs, num_samples=1)  # shape: (1, 1)
-            # Append the sampled token to the generated sequence.
-            generated = torch.cat((generated, next_token), dim=1)
-
-            # If the end-of-text token is generated, stop decoding.
-            if end_token_id is not None and next_token.item() == end_token_id:
+            if end_token_id is not None and next_token == end_token_id:
                 break
 
     return generated
 
 if __name__ == "__main__":
-    # Load the trained model.
+    # Set device (GPU if available).
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Load the tokenizer and update vocab_size accordingly.
+    tokenizer = tiktoken.get_encoding("gpt2")
+    vocab_size = tokenizer.n_vocab  # For GPT-2, this is typically 50257.
+
+    # Hyperparameters for the model.
+    context_length = 256
+    d_model = 512
+    num_layers = 4
+    num_heads = 16
+    d_ff = 2048
+    attn_pdrop = 0.1
+    residual_pdrop = 0.1
+
+    # Instantiate the model and move it to the device.
     model = transformer_lm(
-        vocab_size=50000,
-        context_length=128,
-        d_model=512,
-        num_layers=6,
-        num_heads=8,
-        d_ff=2048,
-        attn_pdrop=0.1,
-        residual_pdrop=0.1
+        vocab_size=vocab_size,
+        context_length=context_length,
+        d_model=d_model,
+        num_layers=num_layers,
+        num_heads=num_heads,
+        d_ff=d_ff,
+        attn_pdrop=attn_pdrop,
+        residual_pdrop=residual_pdrop
+    ).to(device)
+
+    # Create the optimizer.
+    optimizer = AdamW(
+        model.parameters(),
+        lr=1e-3,
+        weight_decay=0.001,
+        betas=(0.9, 0.999),
+        eps=1e-8
     )
-    # Define the prompt.
-    prompt = [101, 2054, 2003, 49999]
-    # Generate a completion.
-    completion = decode(model, prompt, max_new_tokens=100, temperature=0.7, top_p=0.9, end_token_id=49999)
-    print(completion)
+
+    # Load the checkpoint.
+    checkpoint_path = "/home/shu4/ECE491B_HW1/data/Experiment_output/tinystories_checkpoints/checkpoint_10000.pt"
+    load_iterations = load_checkpoint(checkpoint_path, model=model, optimizer=optimizer)
+    print(f"Loaded checkpoint from iteration {load_iterations}.")
+
+    # Set model to evaluation mode.
+    model.eval()
+
+    # Define and encode the prompt.
+    prompt_text = "Once upon a time, in a distant land of magic and mystery, there was a kingdom unlike any other."
+    prompt_tokens = tokenizer.encode(prompt_text)
+    print("Prompt tokens:", prompt_tokens)
+
+    # Generate text using the decode function.
+    generated_ids = decode(
+        model=model,
+        prompt=prompt_tokens,
+        max_tokens=50,
+        temperature=0.8,
+        top_p=0.9,
+    )
+
+    # Decode the generated ids back to text.
+    generated_text = tokenizer.decode(generated_ids)
+    print("Generated text:", generated_text)

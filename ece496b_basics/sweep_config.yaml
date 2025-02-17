@@ -1,26 +1,26 @@
 program: /home/shu4/ECE491B_HW1/ece496b_basics/train.py
 method: grid
 parameters:
-  batch_size:
-    values: [8, 16, 32, 64]
+  lr:
+    values: 5e-4
   total_iters:
-    value: 5000
+    value: 10000
+  batch_size:
+    value: 128
   context_length:
-    value: 256
+    value: 128
   d_model:
     value: 512
   num_layers:
-    value: 4
+    value: 6
   num_heads:
-    value: 16
+    value: 8
   d_ff:
     value: 2048
   attn_pdrop:
     value: 0.1
   residual_pdrop:
     value: 0.1
-  lr:
-    value: 1e-3
   lr_min:
     value: 1e-5
   warmup_iters:
@@ -40,10 +40,10 @@ parameters:
   checkpoint_interval:
     value: 500
   train_file:
-    value: "data/Experiment_output/tinystories_train_tokens.npy"
+    value: "/home/shu4/ECE491B_HW1/data/Experiment_output/tinystories_train_tokens.npy"
   val_file:
-    value: "data/Experiment_output/tinystories_valid_tokens.npy"
+    value: "/home/shu4/ECE491B_HW1/data/Experiment_output/tinystories_valid_tokens.npy"
   checkpoint_dir:
-    value: "data/Experiment_output/checkpoints"
+    value: "/home/shu4/ECE491B_HW1/data/Experiment_output/tinystories_checkpoints"
   wandb_project:
     value: "transformer-lm"

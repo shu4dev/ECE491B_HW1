@@ -16,6 +16,7 @@ from model import (
 )
 
 def main(args):
+    torch.cuda.empty_cache()
     wandb.init(project=args.wandb_project, config=vars(args))
     device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
     print(f"Using device: {device}")
@@ -89,24 +90,24 @@ if __name__ == '__main__':
         fromfile_prefix_chars='@'
     )
     
-    parser.add_argument('--train_file', type=str, required=True, help="Path to training dataset (.npy)")
-    parser.add_argument('--val_file', type=str, required=True, help="Path to validation dataset (.npy)")
-    parser.add_argument('--checkpoint_dir', type=str, default="./checkpoints", help="Directory to save checkpoints")
+    parser.add_argument('--train_file', type=str, default="/home/shu4/ECE491B_HW1/data/Experiment_output/tinystories_train_tokens.npy", required=True, help="Path to training dataset (.npy)")
+    parser.add_argument('--val_file', type=str, default="/home/shu4/ECE491B_HW1/data/Experiment_output/tinystories_valid_tokens.npy", required=True, help="Path to validation dataset (.npy)")
+    parser.add_argument('--checkpoint_dir', type=str, default="/home/shu4/ECE491B_HW1/data/Experiment_output/tinystories_checkpoints", help="Directory to save checkpoints")
     
     parser.add_argument('--wandb_project', type=str, default="transformer-lm", help="Weights & Biases project name")
     
-    parser.add_argument('--vocab_size', type=int, default=50000, help="Vocabulary size")
-    parser.add_argument('--context_length', type=int, default=128, help="Context length for training")
+    parser.add_argument('--vocab_size', type=int, default=50257, help="Vocabulary size")
+    parser.add_argument('--context_length', type=int, default=256, help="Context length for training")
     parser.add_argument('--d_model', type=int, default=512, help="Dimension of model embeddings")
-    parser.add_argument('--num_layers', type=int, default=6, help="Number of transformer layers")
-    parser.add_argument('--num_heads', type=int, default=8, help="Number of attention heads")
+    parser.add_argument('--num_layers', type=int, default=4, help="Number of transformer layers")
+    parser.add_argument('--num_heads', type=int, default=16, help="Number of attention heads")
     parser.add_argument('--d_ff', type=int, default=2048, help="Dimension of the feed-forward network")
     parser.add_argument('--attn_pdrop', type=float, default=0.1, help="Dropout probability for attention layers")
     parser.add_argument('--residual_pdrop', type=float, default=0.1, help="Dropout probability for residual connections")
     
-    parser.add_argument('--batch_size', type=int, default=32, help="Batch size")
+    parser.add_argument('--batch_size', type=int, default=128, help="Batch size")
     parser.add_argument('--total_iters', type=int, default=10000, help="Total number of training iterations")
-    parser.add_argument('--lr', type=float, default=1e-3, help="Initial learning rate")
+    parser.add_argument('--lr', type=float, default=5e-4, help="Initial learning rate")
     parser.add_argument('--lr_min', type=float, default=1e-5, help="Minimum learning rate after decay")
     parser.add_argument('--warmup_iters', type=int, default=1000, help="Iterations for learning rate warmup")
     parser.add_argument('--weight_decay', type=float, default=0.001, help="Weight decay")

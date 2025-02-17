@@ -6,7 +6,7 @@ import numpy as np
 import wandb
 
 from model import (
-    transformer_lm,
+    TransformerLMAblation,
     cross_entropy_loss,
     AdamW,
     get_batch,
@@ -22,7 +22,7 @@ def main(args):
     train_dataset = np.memmap(args.train_file)
     val_dataset = np.memmap(args.val_file)
 
-    model = transformer_lm(
+    model = TransformerLMAblation(
         vocab_size=args.vocab_size,
         context_length=args.context_length,
         d_model=args.d_model,
@@ -31,6 +31,9 @@ def main(args):
         d_ff=args.d_ff,
         attn_pdrop=args.attn_pdrop,
         residual_pdrop=args.residual_pdrop
+        no_rmsnorm=False, 
+        parallel_layers=True,
+        post_norm=False
     ).to(device)
 
     criterion = cross_entropy_loss()
