@@ -9,6 +9,8 @@ import numpy.typing as npt
 import torch
 import regex as re
 import numpy as np
+import json
+from .common import gpt2_bytes_to_unicode
 import math
 import torch.nn.functional as F
 
@@ -541,8 +543,11 @@ def run_save_checkpoint(
         out: str | os.PathLike | BinaryIO | IO[bytes]
             Path or file-like object to serialize the model, optimizer, and iteration to.
     """
-    model.save_checkpoint(model, optimizer, iteration, out)
-
+    torch.save({
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'iteration': iteration,
+    }, out)
 
 def run_load_checkpoint(
     src: str | os.PathLike | BinaryIO | IO[bytes],
@@ -565,7 +570,10 @@ def run_load_checkpoint(
     Returns:
         int, the previously-serialized number of iterations.
     """
-    iteration = model.load_checkpoint(src, model, optimizer)
+    checkpoint = torch.load(src)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    iteration = checkpoint['iteration']
     return iteration
 
 
