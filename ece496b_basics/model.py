@@ -1,9 +1,11 @@
+import os
 import torch
 import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
 import math
-from typing import Optional
+from typing import IO, BinaryIO, Optional
+import numpy.typing as npt
 
 class RMSnorm(nn.Module):
     def __init__(self, d_model: int, eps: float=1e-5):
@@ -187,21 +189,44 @@ class AdamW(torch.optim.Optimizer):
                 state['t'] = t
                 state['m'] = m
                 state['v'] = v
-                
-def gradient_clipping(parameters, max_norm):
-    """
-    Clip gradients to have a maximum norm of `max_norm`.
-    Args:
-        parameters: Iterable of torch.Tensor
-            The parameters of the model.
-        max_norm: float
-            Maximum L2 norm for the gradients.
-    """
-    # Compute the L2 norm of the gradients.
-    total_norm_2 = sum([torch.sum(p.grad ** 2) for p in parameters])
-    total_norm = total_norm_2 ** 0.5
 
-    # If the total norm is larger than `max_norm`, scale all gradients to have a norm of `max_norm`.
+def get_batch(dataset: npt.NDArray, batch_size: int, context_length: int, device: str):
+    starting_indices = torch.randint(0, len(dataset) - context_length, (batch_size,))
+    x = torch.stack([torch.from_numpy(dataset[start_idx:start_idx + context_length]) for start_idx in starting_indices])
+    y = torch.stack([torch.from_numpy(dataset[start_idx + 1:start_idx + context_length + 1]) for start_idx in starting_indices])
+    return x.to(device).long(), y.to(device).long()
+
+def save_checkpoint(
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    iteration: int,
+    out: str | os.PathLike | BinaryIO | IO[bytes],
+):
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "iteration": iteration,
+        },
+        out,
+    )
+
+def load_checkpoint(
+    src: str | os.PathLike | BinaryIO | IO[bytes],
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+):
+    checkpoint = torch.load(src)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    iteration = checkpoint['iteration']
+    return iteration
+
+def gradient_clipping(parameters, max_norm):
+    # Only consider parameters with gradients
+    total_norm_2 = sum([torch.sum(p.grad ** 2) for p in parameters if p.grad is not None])
+    total_norm = total_norm_2 ** 0.5
     if total_norm > max_norm:
         for p in parameters:
-            p.grad.detach().mul_(max_norm / total_norm)
+            if p.grad is not None:
+                p.grad.detach().mul_(max_norm / total_norm)

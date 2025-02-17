@@ -9,8 +9,6 @@ import numpy.typing as npt
 import torch
 import regex as re
 import numpy as np
-import json
-from .common import gpt2_bytes_to_unicode
 import math
 import torch.nn.functional as F
 
@@ -420,10 +418,8 @@ def run_get_batch(
         is the sampled input sequences, and the second tuple item is the corresponding
         language modeling labels.
     """
-    starting_indices = torch.randint(0, len(dataset) - context_length, (batch_size,))
-    x = torch.stack([torch.from_numpy(dataset[start_idx:start_idx + context_length]) for start_idx in starting_indices])
-    y = torch.stack([torch.from_numpy(dataset[start_idx + 1:start_idx + context_length + 1]) for start_idx in starting_indices])
-    return x.to(device), y.to(device)
+    x, y = model.get_batch(dataset, batch_size, context_length, device)
+    return x, y
 
 
 def run_softmax(in_features: torch.FloatTensor, dim: int) -> torch.FloatTensor:
@@ -545,11 +541,7 @@ def run_save_checkpoint(
         out: str | os.PathLike | BinaryIO | IO[bytes]
             Path or file-like object to serialize the model, optimizer, and iteration to.
     """
-    torch.save({
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'iteration': iteration,
-    }, out)
+    model.save_checkpoint(model, optimizer, iteration, out)
 
 
 def run_load_checkpoint(
@@ -573,10 +565,7 @@ def run_load_checkpoint(
     Returns:
         int, the previously-serialized number of iterations.
     """
-    checkpoint = torch.load(src)
-    model.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    iteration = checkpoint['iteration']
+    iteration = model.load_checkpoint(src, model, optimizer)
     return iteration
 
 
