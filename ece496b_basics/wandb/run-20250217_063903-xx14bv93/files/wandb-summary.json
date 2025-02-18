@@ -1,1 +1,0 @@
-{"Train/Loss": 1.4616172313690186, "Train/LR": 1e-05, "Train/WallclockTime": 389.840842962265, "iteration": 5000, "_timestamp": 1739774742.398543, "Validation/Loss": 1.5491943359375, "_runtime": 398.7732729911804, "_step": 5000, "_wandb": {"runtime": 399}}

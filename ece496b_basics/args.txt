@@ -1,9 +1,9 @@
 --train_file
-/home/shu4/ECE491B_HW1/data/Experiment_output/tinystories_train_tokens.npy
+/home/shu4/ECE491B_HW1/data/Experiment_output/owt_train_tokens.bin
 --val_file
-/home/shu4/ECE491B_HW1/data/Experiment_output/tinystories_valid_tokens.npy
+/home/shu4/ECE491B_HW1/data/Experiment_output/owt_valid_tokens.bin
 --checkpoint_dir
-/home/shu4/ECE491B_HW1/data/Experiment_output/tinystories_checkpoints
+/home/shu4/ECE491B_HW1/data/Experiment_output/owt
 --vocab_size
 50257
 --context_length
@@ -21,7 +21,7 @@
 --residual_pdrop
 0.1
 --batch_size
-128
+32
 --total_iters
 10000
 --lr

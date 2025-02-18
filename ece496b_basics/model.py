@@ -176,24 +176,23 @@ class TransformerBlockAblation(nn.Module):
             x = x + self.drop2(self.ffn(self.ln2(x)))
         return x
 
-class TransformerLMAblation(nn.Module):
+class transformer_lm_ablation(nn.Module):
     def __init__(self, vocab_size: int, context_length: int, num_layers: int,
                  d_model: int, num_heads: int, d_ff: int, attn_pdrop: float,
-                 resid_pdrop: float,
-                 no_rmsnorm: bool=False, parallel_layers: bool=False, post_norm: bool=False,
-                 **kwargs):
+                 residual_pdrop: float,
+                 no_rmsnorm: bool=False, parallel_layers: bool=False, post_norm: bool=False):
 
-        super(TransformerLMAblation, self).__init__()
+        super(transformer_lm_ablation, self).__init__()
         self.d_model = d_model
         self.num_layers = num_layers
         self.token_embeddings = nn.Embedding(vocab_size, d_model)
         self.position_embeddings = nn.Embedding(context_length, d_model)
         self.layers = nn.ModuleList([
-            TransformerBlockAblation(d_model, num_heads, d_ff, attn_pdrop, resid_pdrop,
+            TransformerBlockAblation(d_model, num_heads, d_ff, attn_pdrop, residual_pdrop,
                                   no_rmsnorm, parallel_layers, post_norm
                                  ) for _ in range(num_layers)
         ])
-        self.drop = nn.Dropout(resid_pdrop)
+        self.drop = nn.Dropout(residual_pdrop)
         if not no_rmsnorm:
             self.ln_final = RMSnorm(d_model)
         self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
@@ -271,7 +270,7 @@ def get_batch(dataset: npt.NDArray, batch_size: int, context_length: int, device
     starting_indices = torch.randint(0, len(dataset) - context_length, (batch_size,))
     x = torch.stack([torch.from_numpy(dataset[start_idx:start_idx + context_length]) for start_idx in starting_indices])
     y = torch.stack([torch.from_numpy(dataset[start_idx + 1:start_idx + context_length + 1]) for start_idx in starting_indices])
-    return x.to(device).long(), y.to(device).long()
+    return x.to(device), y.to(device)
 
 def save_checkpoint(
     model: torch.nn.Module,
